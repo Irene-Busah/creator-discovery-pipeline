@@ -1,0 +1,89 @@
+# Local dev stack: Postgres for pipeline data + Airflow's own metadata DB
+# in the same instance (separate databases), plus Airflow's webserver and
+# scheduler. Airflow's CeleryExecutor/workers are deliberately omitted —
+# at this scale LocalExecutor is enough, and it's one less moving part to
+# defend in an interview.
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: pipeline
+      POSTGRES_PASSWORD: pipeline
+      POSTGRES_DB: creator_pipeline
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pipeline -d creator_pipeline"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  airflow-init:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://pipeline:pipeline@postgres/creator_pipeline
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      PYTHONPATH: /opt/airflow
+      AIRFLOW__WEBSERVER__SECRET_KEY: "local-dev-secret-key-not-for-production"
+    entrypoint: /bin/bash
+    command: -c "airflow db init && airflow users create --username admin --password admin --firstname a --lastname b --role Admin --email admin@example.com"
+    volumes:
+      - ./pipeline:/opt/airflow/pipeline
+      - ./orchestration/dags:/opt/airflow/dags
+
+  airflow-webserver:
+    build: .
+    depends_on:
+      - airflow-init
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://pipeline:pipeline@postgres/creator_pipeline
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      DATABASE_URL: postgresql+psycopg2://pipeline:pipeline@postgres/creator_pipeline
+      APIFY_API_TOKEN: ${APIFY_API_TOKEN}
+      # pipeline/ is mounted as a sibling of dags/, not inside it — Airflow
+      # only auto-adds the dags folder itself to sys.path, so `import
+      # pipeline...` inside a DAG file needs /opt/airflow on PYTHONPATH too.
+      PYTHONPATH: /opt/airflow
+      # Without an explicit shared value, each Airflow component generates
+      # its own random secret_key at startup. The webserver then can't
+      # verify the scheduler's signed log-fetch requests (JWT signature
+      # mismatch) and log viewing in the UI fails with a 403 — the actual
+      # task traceback gets hidden behind this unrelated error. Any fixed
+      # string works for local dev; a real deployment would use a proper
+      # secret manager, not a literal value in docker-compose.yml.
+      AIRFLOW__WEBSERVER__SECRET_KEY: "local-dev-secret-key-not-for-production"
+    ports:
+      - "8080:8080"
+    command: webserver
+    volumes:
+      - ./pipeline:/opt/airflow/pipeline
+      - ./orchestration/dags:/opt/airflow/dags
+
+  airflow-scheduler:
+    build: .
+    depends_on:
+      - airflow-init
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://pipeline:pipeline@postgres/creator_pipeline
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      DATABASE_URL: postgresql+psycopg2://pipeline:pipeline@postgres/creator_pipeline
+      APIFY_API_TOKEN: ${APIFY_API_TOKEN}
+      PYTHONPATH: /opt/airflow
+      AIRFLOW__WEBSERVER__SECRET_KEY: "local-dev-secret-key-not-for-production"
+    command: scheduler
+    volumes:
+      - ./pipeline:/opt/airflow/pipeline
+      - ./orchestration/dags:/opt/airflow/dags
+
+volumes:
+  pgdata:

@@ -1,0 +1,7 @@
+# No version pins here deliberately — the Dockerfile installs these WITH
+# Airflow's own constraints file applied, which supplies the compatible
+# pins. Pinning here too would just reintroduce the risk of overriding
+# what the constraints file resolved.
+httpx
+sqlalchemy
+psycopg2-binary

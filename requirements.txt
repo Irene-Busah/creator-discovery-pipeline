@@ -1,0 +1,16 @@
+# -- Core pipeline --
+httpx>=0.27
+sqlalchemy>=2.0
+psycopg2-binary>=2.9
+python-dotenv>=1.0
+
+# NOTE: Airflow is intentionally NOT listed here. Airflow only ever runs
+# inside the Docker containers (see Dockerfile), installed there against
+# its own constraints file. Installing apache-airflow locally is not
+# needed to write DAG code or run pytest, and risks pulling in a
+# SQLAlchemy version that conflicts with Airflow's on your host too — the
+# same class of issue this project's Dockerfile exists to avoid.
+
+# -- Testing --
+pytest>=8.0
+pytest-mock>=3.12
