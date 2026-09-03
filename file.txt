@@ -1,0 +1,11 @@
+Table - creators
+attribute - id, platform, date, creator name
+
+per platform
+
+
+SELECT platform, count(id) FROM creators ;
+
+
+platform | count
+tiktoke  | 90
